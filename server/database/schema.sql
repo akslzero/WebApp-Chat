@@ -1,6 +1,6 @@
 
 
-USE railway;
+USE chatapp_db;
 
 -- Users table
 CREATE TABLE IF NOT EXISTS users (

@@ -372,35 +372,35 @@ const Chat = () => {
     navigate("/");
   };
 
-  // respond to request (accept/reject)
+  // respondToRequest (accept/reject)
   const respondToRequest = async (requestId: number, accept: boolean) => {
-    try {
-      const token = localStorage.getItem("token");
-      const res = await fetch("http://localhost:5000/api/friends/respond", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ requestId, accept }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.message || "Failed to respond");
+    const token = localStorage.getItem("token");
 
-      // remove from UI
-      setFriendRequests((prev) => prev.filter((r) => r.id !== requestId));
+    const endpoint = accept
+      ? `http://localhost:5000/api/friends/accept/${requestId}`
+      : `http://localhost:5000/api/friends/reject/${requestId}`;
 
-      // if accepted, update friends list (server may also emit friendRequestResponse that will update)
-      if (accept && data.friend) {
-        setFriends((prev) =>
-          prev.some((f) => f.id === data.friend.id)
-            ? prev
-            : [data.friend, ...prev]
-        );
-      }
-    } catch (err) {
-      console.error("respondToRequest error", err);
-      throw err;
+    const res = await fetch(endpoint, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    const data = await res.json();
+    console.log("RESPOND RESPONSE:", data, "STATUS:", res.status);
+
+    if (!res.ok) throw new Error(data?.message || "Failed");
+
+    // remove request dari UI
+    setFriendRequests((prev) => prev.filter((r) => r.id !== requestId));
+
+    // show distinct toast message
+    if (!accept) {
+        // toast.success("Request rejected"); // This is handled in the button onClick already, but good to know
+    } else {
+        // update friends list only if accepted
+        fetchFriends();
     }
   };
 

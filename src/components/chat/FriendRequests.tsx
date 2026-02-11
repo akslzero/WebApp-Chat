@@ -56,8 +56,7 @@ const FriendRequests = ({ requests, onRespond }: FriendRequestsProps) => {
                 size="sm"
                 onClick={async () => {
                   try {
-                    // send the sender's user id (fromId) so backend can accept the friend
-                    await onRespond(r.fromId, true);
+                    await onRespond(r.id, true); // <-- pakai request.id
                     toast.success("Friend added");
                   } catch (e) {
                     toast.error("Failed to accept");

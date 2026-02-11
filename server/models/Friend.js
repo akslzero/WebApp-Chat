@@ -1,60 +1,113 @@
 const db = require("../config/db");
 
 class Friend {
-  static async getFriends(userId) {
-    const [rows] = await db.query(
-      `SELECT u.id, u.username, u.email 
-       FROM users u
-       INNER JOIN friends f ON (f.friend_id = u.id OR f.user_id = u.id)
-       WHERE (f.user_id = ? OR f.friend_id = ?) 
-       AND u.id != ?
-       AND f.status = 'accepted'`,
-      [userId, userId, userId]
-    );
-    return rows;
-  }
-
-  static async addFriend(userId, friendId) {
+  // SEND REQUEST
+  static async addFriend(senderId, recipientId) {
     const [result] = await db.query(
-      "INSERT INTO friends (user_id, friend_id, status) VALUES (?, ?, ?)",
-      [userId, friendId, "pending"]
+      `INSERT INTO friend_requests (sender_id, recipient_id)
+       VALUES (?, ?)`,
+      [senderId, recipientId]
     );
+
     return result.insertId;
   }
 
-  static async acceptFriend(userId, friendId) {
-    const [result] = await db.query(
-      "UPDATE friends SET status = ? WHERE user_id = ? AND friend_id = ?",
-      ["accepted", friendId, userId]
-    );
-    return result.affectedRows > 0;
-  }
-
-  static async removeFriend(userId, friendId) {
-    const [result] = await db.query(
-      "DELETE FROM friends WHERE (user_id = ? AND friend_id = ?) OR (user_id = ? AND friend_id = ?)",
-      [userId, friendId, friendId, userId]
-    );
-    return result.affectedRows > 0;
-  }
-
-  static async isFriend(userId, friendId) {
-    const [rows] = await db.query(
-      "SELECT * FROM friends WHERE ((user_id = ? AND friend_id = ?) OR (user_id = ? AND friend_id = ?)) AND status = ?",
-      [userId, friendId, friendId, userId, "accepted"]
-    );
-    return rows.length > 0;
-  }
-
+  // PENDING REQUESTS
   static async getPendingRequests(userId) {
     const [rows] = await db.query(
-      `SELECT u.id, u.username, u.email, f.created_at 
-       FROM users u
-       INNER JOIN friends f ON f.user_id = u.id
-       WHERE f.friend_id = ? AND f.status = 'pending'`,
+      `SELECT
+          fr.id AS id,
+          u.id AS fromId,
+          u.username AS fromUsername,
+          fr.created_at AS createdAt
+       FROM friend_requests fr
+       JOIN users u ON u.id = fr.sender_id
+       WHERE fr.recipient_id = ?
+         AND fr.status = 'pending'`,
       [userId]
     );
+
     return rows;
+  }
+
+  // GET REQUEST BY ID
+  static async getRequestById(requestId) {
+    const [rows] = await db.query(
+      `SELECT * FROM friend_requests WHERE id = ?`,
+      [requestId]
+    );
+
+    return rows[0];
+  }
+
+  // ACCEPT FRIEND
+  static async acceptFriend(userId, requestId) {
+    const conn = await db.getConnection();
+
+    try {
+      await conn.beginTransaction();
+
+      const [rows] = await conn.query(
+        `SELECT sender_id
+         FROM friend_requests
+         WHERE id = ? AND recipient_id = ? AND status = 'pending'`,
+        [requestId, userId]
+      );
+
+      if (!rows.length) return false;
+
+      const senderId = rows[0].sender_id;
+
+      // DELETE request instead of update status
+      await conn.query("DELETE FROM friend_requests WHERE id = ?", [requestId]);
+
+      await conn.query(
+        `INSERT INTO friends (user_id, friend_id, status)
+         VALUES (?, ?, 'accepted'), (?, ?, 'accepted')`,
+        [userId, senderId, senderId, userId]
+      );
+
+      await conn.commit();
+      return true;
+    } catch (err) {
+      await conn.rollback();
+      throw err;
+    } finally {
+      conn.release();
+    }
+  }
+
+  // REJECT REQUEST (Delete)
+  static async rejectRequest(userId, requestId) {
+    const [result] = await db.query(
+      "DELETE FROM friend_requests WHERE id = ? AND recipient_id = ?",
+      [requestId, userId]
+    );
+    return result.affectedRows > 0;
+  }
+
+  // FRIEND LIST
+  static async getFriends(userId) {
+    const [rows] = await db.query(
+      `SELECT u.id, u.username
+       FROM users u
+       JOIN friends f ON f.friend_id = u.id
+       WHERE f.user_id = ? AND f.status = 'accepted'`,
+      [userId]
+    );
+
+    return rows;
+  }
+
+  // CHECK ALREADY FRIEND
+  static async isFriend(userId, friendId) {
+    const [rows] = await db.query(
+      `SELECT 1 FROM friends
+       WHERE user_id = ? AND friend_id = ?`,
+      [userId, friendId]
+    );
+
+    return rows.length > 0;
   }
 }
 

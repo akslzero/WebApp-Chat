@@ -63,54 +63,60 @@ const friendController = {
   acceptFriend: async (req, res) => {
     try {
       const userId = req.user.userId;
+      const requestId = parseInt(req.params.friendId, 10);
 
-      // support both /:friendId and body { friendId | requestId }
-      const paramId =
-        req.params && (req.params.friendId ?? req.params.requestId);
-      const bodyId = req.body && (req.body.friendId ?? req.body.requestId);
-      const rawId = paramId ?? bodyId;
-
-      if (!rawId) {
-        console.error("Accept friend: missing friendId/requestId", {
-          params: req.params,
-          body: req.body,
-        });
-        return res
-          .status(400)
-          .json({ message: "friendId/requestId is required" });
+      if (Number.isNaN(requestId)) {
+        return res.status(400).json({ message: "Invalid request id" });
       }
 
-      const friendId = parseInt(rawId, 10);
-      if (Number.isNaN(friendId)) {
-        return res.status(400).json({ message: "Invalid friendId/requestId" });
+      // 1. Fetch request details BEFORE deleting it
+      const request = await Friend.getRequestById(requestId);
+      
+      if (!request) {
+        return res.status(404).json({ message: "Request not found" });
       }
 
-      // Call model
-      const result = await Friend.acceptFriend(userId, friendId);
+      // 2. Perform acceptance (which now deletes the request)
+      await Friend.acceptFriend(userId, requestId);
 
-      // Accept common return types from model:
-      // - boolean true/false
-      // - number of affected rows
-      // - object/row returned
-      const success =
-        result === true ||
-        result === 1 ||
-        (typeof result === "number" && result > 0) ||
-        (result && typeof result === "object");
+      // 3. Send notification using fetched request data
+      const io = req.app.get("io");
+      io.to(`user_${request.sender_id}`).emit("friendRequestResponse", {
+        requestId,
+        accepted: true,
+        friend: {
+          id: userId,
+          username: req.user.username || "User",
+        },
+      });
+
+      res.json({ message: "Friend accepted" });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ message: "Server error" });
+    }
+  },
+
+  // Reject friend request
+  rejectFriend: async (req, res) => {
+    try {
+      const userId = req.user.userId;
+      const requestId = parseInt(req.params.friendId, 10);
+
+      if (Number.isNaN(requestId)) {
+        return res.status(400).json({ message: "Invalid request id" });
+      }
+
+      const success = await Friend.rejectRequest(userId, requestId);
 
       if (success) {
-        return res.json({ message: "Friend request accepted" });
+         res.json({ message: "Friend request rejected" });
       } else {
-        console.warn("Accept friend: not found or no-op", {
-          userId,
-          friendId,
-          result,
-        });
-        return res.status(404).json({ message: "Friend request not found" });
+         res.status(404).json({ message: "Request not found" });
       }
-    } catch (error) {
-      console.error("Accept friend error:", error);
-      return res.status(500).json({ message: "Server error" });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ message: "Server error" });
     }
   },
 
